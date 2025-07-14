@@ -4,7 +4,7 @@ A sleek, real-time, and fully responsive dashboard that displays the live status
 
 ## Live Demo
 
-**(You can add your GitHub Pages link here once you've deployed it!)**
+https://hazelf0x.github.io/markethours/
 
 ## Features
 
