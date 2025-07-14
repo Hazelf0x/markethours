@@ -37,7 +37,7 @@
             transition: color 0.2s ease-in-out;
         }
         .bell-icon.active {
-            color: #38bdf8;
+            color: #38bdf8; /* A bright blue for active alerts */
         }
         .bell-icon:hover {
             color: #7dd3fc;
@@ -62,42 +62,42 @@
     <script>
         // --- Configuration ---
         const markets = [
-            { name: 'New York', openUtc: 13.5, closeUtc: 20, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
-            { name: 'London', openUtc: 8, closeUtc: 16.5, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
-            { name: 'Tokyo', openUtc: 0, closeUtc: 6, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
-            { name: 'Sydney', openUtc: 22, closeUtc: 4, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false }
+            { name: 'New York', timeZone: 'America/New_York', openLocal: { h: 9, m: 30 }, closeLocal: { h: 16, m: 0 }, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
+            { name: 'London', timeZone: 'Europe/London', openLocal: { h: 8, m: 0 }, closeLocal: { h: 16, m: 30 }, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
+            { name: 'Tokyo', timeZone: 'Asia/Tokyo', openLocal: { h: 9, m: 0 }, closeLocal: { h: 15, m: 0 }, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false },
+            { name: 'Sydney', timeZone: 'Australia/Sydney', openLocal: { h: 10, m: 0 }, closeLocal: { h: 16, m: 0 }, days: [1, 2, 3, 4, 5], alertEnabled: false, alertSent: false }
         ];
 
         const dashboard = document.getElementById('dashboard');
 
         /**
-         * Request permission for notifications.
+         * Formats a time object into a 12-hour string like "9:30 AM".
+         * @param {object} time - The time object {h, m}.
+         * @returns {string} The formatted time string.
          */
-        function requestNotificationPermission() {
-            if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
-                Notification.requestPermission().then(permission => {
-                    if (permission === 'granted') {
-                        console.log('Notification permission granted.');
-                    }
-                });
-            }
+        function formatLocalTime(time) {
+            const hours = time.h;
+            const minutes = time.m;
+            const ampm = hours >= 12 ? 'PM' : 'AM';
+            const formattedHours = hours % 12 === 0 ? 12 : hours % 12;
+            const formattedMinutes = String(minutes).padStart(2, '0');
+            return `${formattedHours}:${formattedMinutes} ${ampm}`;
         }
-        
+
         /**
          * Creates the initial HTML structure for each market card.
          */
         function initializeDashboard() {
-            dashboard.innerHTML = '';
+            dashboard.innerHTML = ''; // Clear existing cards
             markets.forEach((market, index) => {
                 const card = document.createElement('div');
                 card.id = `card-${market.name.toLowerCase()}`;
                 card.className = 'bg-gray-800/50 backdrop-blur-sm border border-gray-700 p-6 rounded-xl shadow-lg flex flex-col items-center transition-all duration-300 card-glow';
                 
-                const localOpen = new Date();
-                localOpen.setUTCHours(Math.floor(market.openUtc), (market.openUtc % 1) * 60, 0, 0);
-                const localClose = new Date();
-                localClose.setUTCHours(Math.floor(market.closeUtc), (market.closeUtc % 1) * 60, 0, 0);
-                const timeFormatOptions = { hour: '2-digit', minute: '2-digit', hour12: true };
+                const openLocalStr = formatLocalTime(market.openLocal);
+                const closeLocalStr = formatLocalTime(market.closeLocal);
+                const timeZoneShort = new Intl.DateTimeFormat('en-US', {timeZone: market.timeZone, timeZoneName: 'short'}).formatToParts().find(p => p.type ==='timeZoneName').value;
+
 
                 card.innerHTML = `
                     <div class="w-full flex justify-between items-center">
@@ -108,47 +108,13 @@
                         --:--:--
                     </div>
                     <div class="text-sm text-gray-400 text-center">
-                        <p>Opens: ${localOpen.toLocaleTimeString(undefined, timeFormatOptions)}</p>
-                        <p>Closes: ${localClose.toLocaleTimeString(undefined, timeFormatOptions)}</p>
+                        <p>Opens: ${openLocalStr} (${timeZoneShort})</p>
+                        <p>Closes: ${closeLocalStr} (${timeZoneShort})</p>
                     </div>
                 `;
                 dashboard.appendChild(card);
-
-                // Add event listener for the bell icon
-                document.getElementById(`bell-${index}`).addEventListener('click', () => {
-                    toggleAlert(index);
-                });
+                document.getElementById(`bell-${index}`).addEventListener('click', () => toggleAlert(index));
             });
-        }
-
-        /**
-         * Toggles alert for a specific market.
-         */
-        function toggleAlert(marketIndex) {
-            // Request permission first time an alert is enabled
-            if (Notification.permission === 'denied') {
-                 alert('You have blocked notifications. Please enable them in your browser settings.');
-                 return;
-            }
-            if (Notification.permission !== 'granted') {
-                requestNotificationPermission();
-            }
-
-            markets[marketIndex].alertEnabled = !markets[marketIndex].alertEnabled;
-            const bellIcon = document.getElementById(`bell-${marketIndex}`);
-            bellIcon.classList.toggle('active', markets[marketIndex].alertEnabled);
-        }
-        
-        /**
-         * Sends a browser notification.
-         */
-        function sendNotification(marketName) {
-            if ('Notification' in window && Notification.permission === 'granted') {
-                new Notification('Market Opening Soon!', {
-                    body: `${marketName} opens in 5 minutes.`,
-                    icon: 'https://placehold.co/96x96/0284c7/FFFFFF?text=🔔'
-                });
-            }
         }
 
         /**
@@ -157,79 +123,67 @@
         function updateTimers() {
             const now = new Date();
             let openMarketsCount = 0;
-            const openMarketNames = [];
 
             markets.forEach((market, index) => {
                 const statusEl = document.getElementById(`${market.name.toLowerCase()}-status`);
                 if (!statusEl) return;
 
-                const nowUtcDay = now.getUTCDay();
-                const nowUtcHours = now.getUTCHours() + now.getUTCMinutes() / 60 + now.getUTCSeconds() / 3600;
+                const zoneTimeFormatter = new Intl.DateTimeFormat('en-US', { timeZone: market.timeZone, weekday: 'short', hour: 'numeric', minute: 'numeric', second: 'numeric', hour12: false });
+                const parts = zoneTimeFormatter.formatToParts(now);
+                const getPart = (type) => parts.find(p => p.type === type)?.value || '0';
+
+                const currentDayInZone = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(getPart('weekday'));
+                const currentTimeInSeconds = parseInt(getPart('hour')) * 3600 + parseInt(getPart('minute')) * 60 + parseInt(getPart('second'));
+                const openTimeInSeconds = market.openLocal.h * 3600 + market.openLocal.m * 60;
+                const closeTimeInSeconds = market.closeLocal.h * 3600 + market.closeLocal.m * 60;
 
                 let isOpen = false;
-                if (market.days.includes(nowUtcDay)) {
-                    if (market.openUtc > market.closeUtc) { // Overnight session (like Sydney)
-                        if (nowUtcHours >= market.openUtc || nowUtcHours < market.closeUtc) isOpen = true;
-                    } else {
-                        if (nowUtcHours >= market.openUtc && nowUtcHours < market.closeUtc) isOpen = true;
-                    }
+                if (market.days.includes(currentDayInZone) && currentTimeInSeconds >= openTimeInSeconds && currentTimeInSeconds < closeTimeInSeconds) {
+                    isOpen = true;
                 }
                 
-                // Special check for Sydney opening on Sunday UTC
-                if (market.name === 'Sydney' && !isOpen) {
-                     const sydneyNow = new Date(now.toLocaleString('en-US', {timeZone: 'Australia/Sydney'}));
-                     if(sydneyNow.getDay() >= 1 && sydneyNow.getDay() <= 5 && (nowUtcHours >= market.openUtc || nowUtcHours < market.closeUtc)){
-                         const dayToMatch = nowUtcHours >= market.openUtc ? nowUtcDay : (nowUtcDay - 1 + 7) % 7;
-                         if (market.days.includes((dayToMatch + 1) % 7)) isOpen = true;
-                     }
-                }
-
-                market.isOpen = isOpen; // Store current state
+                market.isOpen = isOpen;
                 if (isOpen) {
                     openMarketsCount++;
-                    openMarketNames.push(market.name.toLowerCase());
                     statusEl.textContent = 'Open';
-                    statusEl.classList.remove('status-closed');
                     statusEl.classList.add('status-open');
-                    market.alertSent = false; // Reset alert when market opens
+                    statusEl.classList.remove('status-closed');
+                    market.alertSent = false;
                 } else {
-                    let nextOpenDate = new Date(now.getTime());
-                    nextOpenDate.setUTCHours(Math.floor(market.openUtc), (market.openUtc % 1) * 60, 0, 0);
-
-                    let currentDay = now.getUTCDay();
-                    if (nowUtcHours >= market.openUtc || !market.days.includes(currentDay)) {
-                        let daysToAdd = 1;
-                        while (!market.days.includes((currentDay + daysToAdd) % 7)) {
-                            daysToAdd++;
-                        }
-                        nextOpenDate.setUTCDate(now.getUTCDate() + daysToAdd);
+                    let daysToAdd = 0;
+                    if (currentTimeInSeconds >= openTimeInSeconds || !market.days.includes(currentDayInZone)) {
+                        daysToAdd = 1;
+                    }
+                    let nextOpenDayInZone = (currentDayInZone + daysToAdd) % 7;
+                    while (!market.days.includes(nextOpenDayInZone)) {
+                        daysToAdd++;
+                        nextOpenDayInZone = (currentDayInZone + daysToAdd) % 7;
                     }
 
-                    const timeToOpen = nextOpenDate.getTime() - now.getTime();
-                    
-                    if (timeToOpen > 0) {
-                        const totalMinutes = Math.floor(timeToOpen / (1000 * 60));
-                        const hours = Math.floor(timeToOpen / (1000 * 60 * 60));
-                        const minutes = Math.floor((timeToOpen % (1000 * 60 * 60)) / (1000 * 60));
-                        const seconds = Math.floor((timeToOpen % (1000 * 60)) / 1000);
-                        
-                        statusEl.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
-                        
-                        // Check for alerts
-                        if (market.alertEnabled && !market.alertSent && totalMinutes === 5) {
-                            sendNotification(market.name);
-                            market.alertSent = true; // Ensure notification is sent only once
-                        }
+                    let timeToOpenInSeconds;
+                    if (daysToAdd === 0) {
+                        timeToOpenInSeconds = openTimeInSeconds - currentTimeInSeconds;
                     } else {
-                        statusEl.textContent = 'Calculating...';
+                        const secondsUntilMidnight = (24 * 3600) - currentTimeInSeconds;
+                        const secondsInBetweenDays = (daysToAdd - 1) * 24 * 3600;
+                        timeToOpenInSeconds = secondsUntilMidnight + secondsInBetweenDays + openTimeInSeconds;
                     }
                     
-                    statusEl.classList.remove('status-open');
+                    const hours = Math.floor(timeToOpenInSeconds / 3600);
+                    const minutes = Math.floor((timeToOpenInSeconds % 3600) / 60);
+                    const seconds = Math.floor(timeToOpenInSeconds % 60);
+                    statusEl.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                    
+                    const totalMinutesToOpen = Math.floor(timeToOpenInSeconds / 60);
+                    if (market.alertEnabled && !market.alertSent && totalMinutesToOpen === 4 && seconds === 59) {
+                        sendNotification(market.name);
+                        market.alertSent = true;
+                    }
                     statusEl.classList.add('status-closed');
+                    statusEl.classList.remove('status-open');
                 }
             });
 
-            // Update overlap glow effect
             markets.forEach(market => {
                 const cardEl = document.getElementById(`card-${market.name.toLowerCase()}`);
                 if (openMarketsCount > 1 && market.isOpen) {
@@ -240,9 +194,31 @@
             });
         }
 
-        // --- Initial Load and Interval ---
+        function requestNotificationPermission() {
+             if ('Notification' in window && Notification.permission !== 'granted' && Notification.permission !== 'denied') {
+                Notification.requestPermission().then(p => console.log(`Notification permission: ${p}`));
+            }
+        }
+        function toggleAlert(marketIndex) {
+            if (Notification.permission === 'denied') {
+                 alert('You have blocked notifications. Please enable them in your browser settings.');
+                 return;
+            }
+            if (Notification.permission !== 'granted') requestNotificationPermission();
+            markets[marketIndex].alertEnabled = !markets[marketIndex].alertEnabled;
+            document.getElementById(`bell-${marketIndex}`).classList.toggle('active', markets[marketIndex].alertEnabled);
+        }
+        function sendNotification(marketName) {
+            if ('Notification' in window && Notification.permission === 'granted') {
+                new Notification('Market Opening Soon!', {
+                    body: `${marketName} opens in 5 minutes.`,
+                    icon: 'https://placehold.co/96x96/0284c7/FFFFFF?text=🔔'
+                });
+            }
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
-            requestNotificationPermission(); // Ask for permission on load
+            requestNotificationPermission();
             initializeDashboard();
             updateTimers();
             setInterval(updateTimers, 1000);
