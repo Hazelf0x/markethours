@@ -70,11 +70,6 @@
 
         const dashboard = document.getElementById('dashboard');
 
-        /**
-         * Formats a time object into a 12-hour string like "9:30 AM".
-         * @param {object} time - The time object {h, m}.
-         * @returns {string} The formatted time string.
-         */
         function formatLocalTime(time) {
             const hours = time.h;
             const minutes = time.m;
@@ -84,11 +79,8 @@
             return `${formattedHours}:${formattedMinutes} ${ampm}`;
         }
 
-        /**
-         * Creates the initial HTML structure for each market card.
-         */
         function initializeDashboard() {
-            dashboard.innerHTML = ''; // Clear existing cards
+            dashboard.innerHTML = '';
             markets.forEach((market, index) => {
                 const card = document.createElement('div');
                 card.id = `card-${market.name.toLowerCase()}`;
@@ -97,7 +89,6 @@
                 const openLocalStr = formatLocalTime(market.openLocal);
                 const closeLocalStr = formatLocalTime(market.closeLocal);
                 const timeZoneShort = new Intl.DateTimeFormat('en-US', {timeZone: market.timeZone, timeZoneName: 'short'}).formatToParts().find(p => p.type ==='timeZoneName').value;
-
 
                 card.innerHTML = `
                     <div class="w-full flex justify-between items-center">
@@ -117,9 +108,6 @@
             });
         }
 
-        /**
-         * Main update function.
-         */
         function updateTimers() {
             const now = new Date();
             let openMarketsCount = 0;
@@ -175,10 +163,15 @@
                     statusEl.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                     
                     const totalMinutesToOpen = Math.floor(timeToOpenInSeconds / 60);
-                    if (market.alertEnabled && !market.alertSent && totalMinutesToOpen === 4 && seconds === 59) {
+                    
+                    // --- ALERT LOGIC FIX ---
+                    // Check if the countdown has entered the 5-minute window.
+                    // This is more robust than checking for an exact second, which can be missed.
+                    if (market.alertEnabled && !market.alertSent && totalMinutesToOpen === 5) {
                         sendNotification(market.name);
-                        market.alertSent = true;
+                        market.alertSent = true; // Set flag to prevent sending multiple alerts
                     }
+
                     statusEl.classList.add('status-closed');
                     statusEl.classList.remove('status-open');
                 }
