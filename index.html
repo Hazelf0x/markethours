@@ -87,17 +87,60 @@
     </style>
 </head>
 <body class="bg-gray-900 text-gray-200 flex items-center justify-center min-h-screen">
-    <div class="container mx-auto p-4 md:p-8 max-w-7xl">
-        <header class="text-center mb-6">
-            <h1 class="text-4xl md:text-5xl font-bold text-white">
-                Global Market Hours
-            </h1>
-            <p class="text-gray-400 mt-2">Live status based on your local time</p>
-            <p id="secure-warning" class="mt-3 text-sm text-amber-300 hidden">
-                For notifications to work in Chrome, open this page via https:// or http://localhost
-                (notifications/service workers are blocked on file://).
-            </p>
-        </header>
+    <div class="container mx-auto p-4 md:p-8 max-w-7xl w-full flex flex-col items-center">
+        <div id="header-container" class="text-center w-full">
+            <div id="header-toggle" class="flex justify-center items-center gap-2 cursor-pointer mb-4">
+                <h1 class="text-4xl md:text-5xl font-bold text-white">
+                    Global Market Hours
+                </h1>
+                <svg id="header-arrow" class="w-6 h-6 text-gray-400 transition-transform" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m19.5 8.25-7.5 7.5-7.5-7.5" />
+                </svg>
+            </div>
+
+            <div id="collapsible-section" class="transition-all duration-500 ease-in-out overflow-hidden">
+                <div class="pb-6">
+                    <p class="text-gray-400 mt-2">Live status based on your local time</p>
+                    <p id="secure-warning" class="mt-3 text-sm text-amber-300 hidden">
+                        For notifications to work in Chrome, open this page via https:// or http://localhost
+                        (notifications/service workers are blocked on file://).
+                    </p>
+
+                    <div class="flex justify-center gap-4 items-center flex-wrap my-3">
+                         <p id="settings-toggle" class="text-sm text-gray-400 cursor-pointer hover:text-gray-300 transition-colors duration-200">Settings</p>
+                    </div>
+                    <div id="settings-panel" class="bg-gray-800 border border-gray-700 rounded-lg p-4 mb-4 max-w-xl mx-auto text-left" style="display: none;">
+                        <div class="flex items-center gap-3 mb-3">
+                            <input id="setting-preopen" type="checkbox" class="h-4 w-4">
+                            <label for="setting-preopen" class="text-sm">Notify before open</label>
+                        </div>
+                        <div class="flex items-center gap-3 mb-3 ml-7">
+                            <label for="setting-lead" class="text-sm w-48">Lead time (minutes)</label>
+                            <input id="setting-lead" type="number" min="1" max="240" class="bg-gray-900 border border-gray-700 rounded px-2 py-1 w-24 text-sm" />
+                        </div>
+                        <div class="flex items-center gap-3 mb-4">
+                            <input id="setting-open" type="checkbox" class="h-4 w-4">
+                            <label for="setting-open" class="text-sm">Notify at open</label>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="settings-save" class="bg-green-600 hover:bg-green-700 text-white font-medium py-1.5 px-3 rounded">Save</button>
+                            <button id="settings-reset" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-1.5 px-3 rounded">Reset Defaults</button>
+                        </div>
+                    </div>
+                    <div id="debug-buttons" class="flex gap-4 justify-center items-center flex-wrap mb-2" style="display: none;">
+                        <button id="test-notification" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200">
+                            Test Notifications
+                        </button>
+                        <button id="check-settings" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200">
+                            Check Browser Settings
+                        </button>
+                    </div>
+                    <p id="debug-toggle" class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition-colors duration-200" title="Click to show notification testing tools">
+                        Having notification issues? Click here for help
+                    </p>
+                </div>
+            </div>
+        </div>
 
         <main id="dashboard" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
             <!-- Market cards will be dynamically injected here -->
@@ -151,9 +194,62 @@
         const userZone = Intl.DateTimeFormat().resolvedOptions().timeZone || DateTime.local().zoneName;
         let markets = JSON.parse(JSON.stringify(baseMarkets));
 
+        function loadAlertSettings() {
+            try {
+                const raw = localStorage.getItem('mhAlerts');
+                return raw ? JSON.parse(raw) : {};
+            } catch (e) {
+                console.warn('Could not load alert settings', e);
+                return {};
+            }
+        }
+        function saveAlertSettings() {
+            try {
+                const settingsToSave = {};
+                markets.forEach(m => {
+                    settingsToSave[m.name.toLowerCase()] = m.alertEnabled;
+                });
+                localStorage.setItem('mhAlerts', JSON.stringify(settingsToSave));
+            } catch (e) {
+                console.warn('Could not save alert settings', e);
+            }
+        }
+
+        // Load and apply persistent alert settings
+        const alertSettings = loadAlertSettings();
+        markets.forEach(m => {
+            if (alertSettings[m.name.toLowerCase()] !== undefined) {
+                m.alertEnabled = alertSettings[m.name.toLowerCase()];
+            }
+        });
+
         // Notification + Service Worker setup
         let notificationPermissionGranted = false;
         let swRegistration = null;
+
+        const defaultSettings = { preOpenEnabled: true, openEnabled: true, preOpenLeadMinutes: 5 };
+
+        function loadSettings() {
+            try {
+                const raw = localStorage.getItem('mhSettings');
+                const parsed = raw ? JSON.parse(raw) : {};
+                return {
+                    preOpenEnabled: parsed.preOpenEnabled !== undefined ? parsed.preOpenEnabled : defaultSettings.preOpenEnabled,
+                    openEnabled: parsed.openEnabled !== undefined ? parsed.openEnabled : defaultSettings.openEnabled,
+                    preOpenLeadMinutes: Number.isFinite(parsed.preOpenLeadMinutes) ? parsed.preOpenLeadMinutes : defaultSettings.preOpenLeadMinutes
+                };
+            } catch (e) {
+                return { ...defaultSettings };
+            }
+        }
+        function saveSettings() {
+            try {
+                localStorage.setItem('mhSettings', JSON.stringify(settings));
+            } catch (e) {
+                // ignore
+            }
+        }
+        let settings = loadSettings();
 
         function isSecure() {
             return window.isSecureContext || location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1';
@@ -337,24 +433,6 @@
         function initializeDashboard() {
             dashboard.innerHTML = '';
 
-            // Help/debug block
-            const helper = document.createElement('div');
-            helper.className = 'col-span-full mb-6 text-center';
-            helper.innerHTML = `
-                <div id="debug-buttons" class="flex gap-4 justify-center items-center flex-wrap mb-2" style="display: none;">
-                    <button id="test-notification" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200">
-                        Test Notifications
-                    </button>
-                    <button id="check-settings" class="bg-gray-600 hover:bg-gray-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200">
-                        Check Browser Settings
-                    </button>
-                </div>
-                <p id="debug-toggle" class="text-xs text-gray-500 cursor-pointer hover:text-gray-300 transition-colors duration-200" title="Click to show notification testing tools">
-                    Having notification issues? Click here for help
-                </p>
-            `;
-            dashboard.appendChild(helper);
-
             markets.forEach((market, index) => {
                 const card = document.createElement('div');
                 card.id = `card-${market.name.toLowerCase()}`;
@@ -393,59 +471,7 @@
                 });
             });
 
-            // Test notification
-            document.getElementById('test-notification').addEventListener('click', async () => {
-                const button = document.getElementById('test-notification');
-                const original = button.textContent;
-                button.textContent = 'Testing...';
-                button.disabled = true;
-                try {
-                    const success = await notify('Test Notification', 'Market Hours notifications are working!', 'market-hours-test');
-                    button.textContent = success ? 'Test Sent!' : 'Test Failed';
-                } catch (e) {
-                    console.error('Error in test notification:', e);
-                    button.textContent = 'Error';
-                } finally {
-                    setTimeout(() => {
-                        button.textContent = original;
-                        button.disabled = false;
-                    }, 2000);
-                }
-            });
-
-            // Check settings
-            document.getElementById('check-settings').addEventListener('click', () => {
-                const info = [
-                    `Notification API Support: ${'Notification' in window}`,
-                    `Permission Status: ${Notification?.permission || 'Unknown'}`,
-                    `Internal Permission State: ${notificationPermissionGranted}`,
-                    `Service Worker Support: ${'serviceWorker' in navigator}`,
-                    `Secure Context: ${isSecure()}`,
-                    `User Agent: ${navigator.userAgent}`,
-                    ``,
-                    `If notifications aren't showing:`,
-                    `1) Serve this page via https:// or http://localhost`,
-                    `2) Check browser site permissions for Notifications`,
-                    `3) Check OS notification settings`,
-                    `4) Try an incognito window`
-                ].join('\n');
-                console.log('=== Notification Debug Info ===');
-                console.log(info);
-                alert(info);
-            });
-
-            // Debug toggle
-            document.getElementById('debug-toggle').addEventListener('click', () => {
-                const debugButtons = document.getElementById('debug-buttons');
-                const toggleText = document.getElementById('debug-toggle');
-                if (debugButtons.style.display === 'none') {
-                    debugButtons.style.display = 'flex';
-                    toggleText.textContent = 'Click here to hide notification tools';
-                } else {
-                    debugButtons.style.display = 'none';
-                    toggleText.textContent = 'Having notification issues? Click here for help';
-                }
-            });
+            // Event listeners for header controls are now in DOMContentLoaded
         }
 
         async function toggleAlert(marketIndex) {
@@ -463,18 +489,28 @@
             }
 
             markets[marketIndex].alertEnabled = !markets[marketIndex].alertEnabled;
-            markets[marketIndex].alertSent = false;
+            markets[marketIndex].alertSent = false; // Reset sent status on toggle
+            saveAlertSettings(); // Persist the change
 
             const bellIcon = document.getElementById(`bell-${marketIndex}`);
             bellIcon.classList.toggle('active', markets[marketIndex].alertEnabled);
 
             if (markets[marketIndex].alertEnabled) {
-                notify('Alert Enabled', `You'll be notified 5 minutes before and when ${markets[marketIndex].name} opens.`, `alert-enabled-${markets[marketIndex].name.toLowerCase()}`);
+                const parts = [];
+                if (settings.preOpenEnabled) parts.push(`${settings.preOpenLeadMinutes} minutes before`);
+                if (settings.openEnabled) parts.push('when it opens');
+                const msg = parts.length ? `You'll be notified ${parts.join(' and ')} for ${markets[marketIndex].name}.` : 'Notifications are currently disabled in Settings.';
+                notify('Alert Enabled', msg, `alert-enabled-${markets[marketIndex].name.toLowerCase()}`);
             }
         }
 
-        async function sendMarketNotification(marketName) {
-            return notify('Market Opening Soon!', `${marketName} opens in 5 minutes.`, `market-alert-${marketName.toLowerCase()}`);
+        async function sendMarketNotification(marketName, minutesRemaining) {
+            // Use the actual remaining minutes for a more accurate message, rounding to the nearest minute.
+            const minutes = minutesRemaining !== undefined ? Math.round(minutesRemaining) : settings.preOpenLeadMinutes;
+            const message = minutes > 1
+                ? `${marketName} opens in about ${minutes} minutes.`
+                : `${marketName} is opening very soon.`;
+            return notify('Market Opening Soon!', message, `market-alert-${marketName.toLowerCase()}`);
         }
 
         async function sendMarketOpenNotification(marketName) {
@@ -515,16 +551,21 @@
 
                         statusEl.textContent = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
 
-                        const totalMinutes = Math.floor(msToOpen / 60000);
-                        // Reset alertSent when sufficiently far away
-                        if (market.alertSent && totalMinutes > 10) {
-                            market.alertSent = false;
+                        const leadMs = Math.max(1, Number(settings.preOpenLeadMinutes || 5)) * 60000;
+                        const nextISO = nextOpenZ.toISO();
+                        if (market._lastPlannedOpenISO !== nextISO) {
+                            market._preAlertSent = false;
+                            market._prevMsToOpen = undefined;
+                            market._lastPlannedOpenISO = nextISO;
                         }
-                        // Fire between 5 and 4 minutes left (inclusive of 5; exclusive of 4)
-                        if (market.alertEnabled && !market.alertSent && totalMinutes <= 5 && totalMinutes > 4) {
-                            sendMarketNotification(market.name);
-                            market.alertSent = true;
+                        if (settings.preOpenEnabled && market.alertEnabled && !market._preAlertSent) {
+                            if (market._prevMsToOpen === undefined || (market._prevMsToOpen > leadMs && msToOpen <= leadMs)) {
+                                const minutesRemaining = msToOpen / 60000;
+                                sendMarketNotification(market.name, minutesRemaining);
+                                market._preAlertSent = true;
+                            }
                         }
+                        market._prevMsToOpen = msToOpen;
                     } else {
                         statusEl.textContent = 'Calculating...';
                     }
@@ -534,7 +575,7 @@
                 }
 
                 // Notify on open transition (closed -> open)
-                if (market.alertEnabled && wasOpen === false && openNow === true) {
+                if (settings.openEnabled && market.alertEnabled && wasOpen === false && openNow === true) {
                     sendMarketOpenNotification(market.name);
                 }
                 // Track previous open state
@@ -559,6 +600,131 @@
             if (!isSecure()) {
                 secureWarning.classList.remove('hidden');
             }
+
+            // --- All Header & Settings Logic ---
+            const headerToggle = document.getElementById('header-toggle');
+            const collapsibleSection = document.getElementById('collapsible-section');
+            const headerArrow = document.getElementById('header-arrow');
+            const headerContainer = document.getElementById('header-container');
+            const settingsToggle = document.getElementById('settings-toggle');
+            const settingsPanel = document.getElementById('settings-panel');
+            const debugToggle = document.getElementById('debug-toggle');
+            const debugButtons = document.getElementById('debug-buttons');
+
+            const updateCollapsibleHeight = () => {
+                // Only run if the section is expanded
+                if (collapsibleSection.style.maxHeight !== '0px') {
+                    collapsibleSection.style.maxHeight = collapsibleSection.scrollHeight + "px";
+                }
+            };
+
+            // Main header toggle
+            headerToggle.addEventListener('click', () => {
+                if (collapsibleSection.style.maxHeight === '0px') {
+                    // Expand
+                    collapsibleSection.style.maxHeight = collapsibleSection.scrollHeight + "px";
+                    headerArrow.classList.remove('rotate-180');
+                    headerContainer.classList.add('mb-6');
+                } else {
+                    // Collapse
+                    collapsibleSection.style.maxHeight = '0px';
+                    headerArrow.classList.add('rotate-180');
+                    headerContainer.classList.remove('mb-6');
+                }
+            });
+
+            // Settings panel toggle
+            settingsToggle.addEventListener('click', () => {
+                settingsPanel.style.display = settingsPanel.style.display === 'none' ? 'block' : 'none';
+                // Use a timeout to allow the DOM to reflow before recalculating height
+                setTimeout(updateCollapsibleHeight, 10);
+            });
+
+            // Debug tools toggle
+            debugToggle.addEventListener('click', () => {
+                if (debugButtons.style.display === 'none') {
+                    debugButtons.style.display = 'flex';
+                    debugToggle.textContent = 'Click here to hide notification tools';
+                } else {
+                    debugButtons.style.display = 'none';
+                    debugToggle.textContent = 'Having notification issues? Click here for help';
+                }
+                // Use a timeout to allow the DOM to reflow before recalculating height
+                setTimeout(updateCollapsibleHeight, 10);
+            });
+
+            // Initialize settings inputs and their handlers
+            const inputPre = document.getElementById('setting-preopen');
+            const inputLead = document.getElementById('setting-lead');
+            const inputOpen = document.getElementById('setting-open');
+            inputPre.checked = !!settings.preOpenEnabled;
+            inputLead.value = Number(settings.preOpenLeadMinutes || 5);
+            inputOpen.checked = !!settings.openEnabled;
+
+            document.getElementById('settings-save').addEventListener('click', () => {
+                const lead = Math.max(1, Math.min(240, parseInt(inputLead.value, 10) || 5));
+                settings.preOpenEnabled = !!inputPre.checked;
+                settings.openEnabled = !!inputOpen.checked;
+                settings.preOpenLeadMinutes = lead;
+                saveSettings();
+                showToast('Settings saved', `Pre-open: ${settings.preOpenEnabled ? settings.preOpenLeadMinutes + ' min' : 'off'}; Open: ${settings.openEnabled ? 'on' : 'off'}`);
+                settingsPanel.style.display = 'none';
+                setTimeout(updateCollapsibleHeight, 10); // Also update on save
+            });
+
+            document.getElementById('settings-reset').addEventListener('click', () => {
+                settings = { ...defaultSettings };
+                saveSettings();
+                inputPre.checked = settings.preOpenEnabled;
+                inputLead.value = settings.preOpenLeadMinutes;
+                inputOpen.checked = settings.openEnabled;
+                showToast('Settings reset', 'Defaults restored');
+            });
+
+            // Test notification button
+            document.getElementById('test-notification').addEventListener('click', async () => {
+                const button = document.getElementById('test-notification');
+                const original = button.textContent;
+                button.textContent = 'Testing...';
+                button.disabled = true;
+                try {
+                    const success = await notify('Test Notification', 'Market Hours notifications are working!', 'market-hours-test');
+                    button.textContent = success ? 'Test Sent!' : 'Test Failed';
+                } catch (e) {
+                    console.error('Error in test notification:', e);
+                    button.textContent = 'Error';
+                } finally {
+                    setTimeout(() => {
+                        button.textContent = original;
+                        button.disabled = false;
+                    }, 2000);
+                }
+            });
+
+            // Check settings button
+            document.getElementById('check-settings').addEventListener('click', () => {
+                const info = [
+                    `Notification API Support: ${'Notification' in window}`,
+                    `Permission Status: ${Notification?.permission || 'Unknown'}`,
+                    `Internal Permission State: ${notificationPermissionGranted}`,
+                    `Service Worker Support: ${'serviceWorker' in navigator}`,
+                    `Secure Context: ${isSecure()}`,
+                    `User Agent: ${navigator.userAgent}`,
+                    ``,
+                    `If notifications aren't showing:`,
+                    `1) Serve this page via https:// or http://localhost`,
+                    `2) Check browser site permissions for Notifications`,
+                    `3) Check OS notification settings`,
+                    `4) Try an incognito window`
+                ].join('\n');
+                console.log('=== Notification Debug Info ===');
+                console.log(info);
+                alert(info);
+            });
+
+            // Start collapsed by default
+            collapsibleSection.style.maxHeight = '0px';
+            headerArrow.classList.add('rotate-180');
 
             // Initialize permission state
             if ('Notification' in window && Notification.permission === 'granted') {
